@@ -10,6 +10,8 @@ export class CannonSyntaxError extends SyntaxError {
 }
 
 export function lex(source) {
+  if (typeof source !== 'string') throw new TypeError('Cannon source must be a string');
+
   const tokens = [];
   let i = 0;
   let line = 1;
@@ -88,7 +90,7 @@ export function lex(source) {
       continue;
     }
 
-    if ('{}()[],;:+-*/%=<>!'.includes(ch)) {
+    if ('{}()[],.;:+-*/%=<>!'.includes(ch)) {
       advance();
       push(ch, ch, startLine, startColumn);
       continue;
