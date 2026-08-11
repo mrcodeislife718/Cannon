@@ -22,9 +22,12 @@ export function emitJavaScript(ast) {
         return `${pad}${node.kind} ${node.name} = ${emitExpression(node.value)};`;
       }
       case 'AssignmentStatement': {
-        const firstAssignment = !currentScope().has(node.name);
-        currentScope().add(node.name);
-        return `${pad}${firstAssignment ? 'let ' : ''}${node.name} = ${emitExpression(node.value)};`;
+        if (node.target.type === 'Identifier') {
+          const firstAssignment = !currentScope().has(node.target.name);
+          currentScope().add(node.target.name);
+          return `${pad}${firstAssignment ? 'let ' : ''}${node.target.name} = ${emitExpression(node.value)};`;
+        }
+        return `${pad}${emitExpression(node.target)} = ${emitExpression(node.value)};`;
       }
       case 'ExpressionStatement':
         return `${pad}${emitExpression(node.expression)};`;
@@ -59,6 +62,11 @@ export function emitJavaScript(ast) {
     switch (node.type) {
       case 'Literal': return JSON.stringify(node.value);
       case 'Identifier': return node.name;
+      case 'ArrayExpression': return `[${node.elements.map(emitExpression).join(', ')}]`;
+      case 'ObjectExpression': return `{ ${node.properties.map((property) => `${JSON.stringify(property.key)}: ${emitExpression(property.value)}`).join(', ')} }`;
+      case 'MemberExpression': return node.computed
+        ? `${emitExpression(node.object)}[${emitExpression(node.property)}]`
+        : `${emitExpression(node.object)}.${node.property.name}`;
       case 'UnaryExpression': return `(${node.operator}${emitExpression(node.argument)})`;
       case 'BinaryExpression': {
         const operator = node.operator === '==' ? '===' : node.operator === '!=' ? '!==' : node.operator;
