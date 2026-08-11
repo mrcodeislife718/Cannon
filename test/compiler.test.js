@@ -54,6 +54,20 @@ test('compiler executes if else and while', () => {
   assert.equal(result.stdout.trim(), 'ok');
 });
 
+test('arrays objects indexing member access and mutation execute', () => {
+  const result = run(`
+    values = [3, 5, 7,]
+    user = { name: "Ada", score: values[1], }
+    user.score = user.score + 10
+    values[0] = 9
+    print(user.name)
+    print(user.score)
+    print(values[0])
+  `);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), 'Ada\n15\n9');
+});
+
 test('comments are ignored without changing execution', () => {
   const result = run(`
     // line comment
@@ -63,4 +77,16 @@ test('comments are ignored without changing execution', () => {
   `);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), '10');
+});
+
+test('semantic analysis rejects undefined identifiers', () => {
+  assert.throws(() => compile('print(missing)'), /Undefined identifier: missing/);
+});
+
+test('semantic analysis rejects const reassignment', () => {
+  assert.throws(() => compile('const answer = 42\nanswer = 43'), /Cannot reassign const binding: answer/);
+});
+
+test('semantic analysis checks known function arity', () => {
+  assert.throws(() => compile('fn add(a, b) { return a + b }\nprint(add(1))'), /expects 2 arguments, received 1/);
 });
