@@ -1,34 +1,37 @@
 import { parse } from './parser.js';
+import { analyze } from './semantic.js';
 
 function indent(level) { return '  '.repeat(level); }
 
 export function emitJavaScript(ast) {
   const declaredScopes = [new Set()];
   const currentScope = () => declaredScopes[declaredScopes.length - 1];
+  const isDeclared = (name) => declaredScopes.some((scope) => scope.has(name));
 
   function emitProgram(node) {
     return node.body.map((statement) => emitStatement(statement, 0)).join('\n');
   }
 
   function emitBlock(node, level) {
-    return `{\n${node.body.map((statement) => emitStatement(statement, level + 1)).join('\n')}\n${indent(level)}}`;
+    declaredScopes.push(new Set());
+    const body = node.body.map((statement) => emitStatement(statement, level + 1)).join('\n');
+    declaredScopes.pop();
+    return `{\n${body}\n${indent(level)}}`;
   }
 
   function emitStatement(node, level) {
     const pad = indent(level);
     switch (node.type) {
-      case 'VariableDeclaration': {
+      case 'VariableDeclaration':
         currentScope().add(node.name);
         return `${pad}${node.kind} ${node.name} = ${emitExpression(node.value)};`;
-      }
-      case 'AssignmentStatement': {
+      case 'AssignmentStatement':
         if (node.target.type === 'Identifier') {
-          const firstAssignment = !currentScope().has(node.target.name);
-          currentScope().add(node.target.name);
+          const firstAssignment = !isDeclared(node.target.name);
+          if (firstAssignment) currentScope().add(node.target.name);
           return `${pad}${firstAssignment ? 'let ' : ''}${node.target.name} = ${emitExpression(node.value)};`;
         }
         return `${pad}${emitExpression(node.target)} = ${emitExpression(node.value)};`;
-      }
       case 'ExpressionStatement':
         return `${pad}${emitExpression(node.expression)};`;
       case 'ReturnStatement':
@@ -43,10 +46,9 @@ export function emitJavaScript(ast) {
       case 'IfStatement': {
         const consequent = emitBlock(node.consequent, level);
         let result = `${pad}if (${emitExpression(node.test)}) ${consequent}`;
-        if (node.alternate) {
-          if (node.alternate.type === 'IfStatement') result += ` else ${emitStatement(node.alternate, level).trimStart()}`;
-          else result += ` else ${emitBlock(node.alternate, level)}`;
-        }
+        if (node.alternate) result += node.alternate.type === 'IfStatement'
+          ? ` else ${emitStatement(node.alternate, level).trimStart()}`
+          : ` else ${emitBlock(node.alternate, level)}`;
         return result;
       }
       case 'WhileStatement':
@@ -63,7 +65,7 @@ export function emitJavaScript(ast) {
       case 'Literal': return JSON.stringify(node.value);
       case 'Identifier': return node.name;
       case 'ArrayExpression': return `[${node.elements.map(emitExpression).join(', ')}]`;
-      case 'ObjectExpression': return `{ ${node.properties.map((property) => `${JSON.stringify(property.key)}: ${emitExpression(property.value)}`).join(', ')} }`;
+      case 'ObjectExpression': return `{ ${node.properties.map((p) => `${JSON.stringify(p.key)}: ${emitExpression(p.value)}`).join(', ')} }`;
       case 'MemberExpression': return node.computed
         ? `${emitExpression(node.object)}[${emitExpression(node.property)}]`
         : `${emitExpression(node.object)}.${node.property.name}`;
@@ -73,9 +75,7 @@ export function emitJavaScript(ast) {
         return `(${emitExpression(node.left)} ${operator} ${emitExpression(node.right)})`;
       }
       case 'CallExpression': {
-        const callee = node.callee.type === 'Identifier' && node.callee.name === 'print'
-          ? 'console.log'
-          : emitExpression(node.callee);
+        const callee = node.callee.type === 'Identifier' && node.callee.name === 'print' ? 'console.log' : emitExpression(node.callee);
         return `${callee}(${node.arguments.map(emitExpression).join(', ')})`;
       }
       default:
@@ -88,5 +88,6 @@ export function emitJavaScript(ast) {
 
 export function compile(source) {
   const ast = parse(source);
+  analyze(ast);
   return { ast, code: emitJavaScript(ast) };
 }
