@@ -9,12 +9,18 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 24
-      - name: Run compiler tests
+          node-version: ${{ matrix.node }}
+      - name: Verify native toolchain
+        run: cc --version
+      - name: Run language, toolchain, and platform target proof
         run: npm test
