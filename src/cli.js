@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { compile, parse, format, check, addDependency, install, runTests, createProject } from './index.js';
+import { compile, parse, format, check, addDependency, install, runTests, createProject, buildTarget, benchmarkCompiler } from './index.js';
 
 let args = process.argv.slice(2);
 let command = args[0];
@@ -16,7 +16,7 @@ if (command?.endsWith('.cannon')) {
 }
 
 function usage(code = 0) {
-  console.log(`cannon <file.cannon>\ncannon <command> [arguments]\n\nCommands:\n  run <file>              Compile and execute a .cannon program\n  build <file> [-o file]  Compile a .cannon program to JavaScript\n  check <file>             Parse and validate Cannon source\n  fmt <file> [--write]     Format Cannon source\n  test [directory]         Discover and run *.test.cannon/*.spec.cannon\n  add <package[@version]>  Add and lock a dependency\n  install [directory]      Resolve locked project dependencies\n  create <directory>       Create a Cannon project\n  ast <file>               Print the parsed AST`);
+  console.log(`cannon <file.cannon>\ncannon <command> [arguments]\n\nCommands:\n  run <file>                         Compile and execute a .cannon program\n  build <file> [-o file]             Compile a .cannon program to JavaScript\n  build <file> --target <name> [-o dir]\n                                     Build web, backend, or native target artifacts\n  bench <file> [--iterations N]      Measure compiler latency without asserting a claim\n  check <file>                       Parse and validate Cannon source\n  fmt <file> [--write]               Format Cannon source\n  test [directory]                   Discover and run *.test.cannon/*.spec.cannon\n  add <package[@version]>            Add and lock a dependency\n  install [directory]                Resolve locked project dependencies\n  create <directory>                 Create a Cannon project\n  ast <file>                         Print the parsed AST`);
   process.exit(code);
 }
 
@@ -44,7 +44,7 @@ if (command === 'create') {
   catch (error) { console.error(`cannon: ${error.message}`); process.exit(1); }
 }
 
-if (!['run','build','check','fmt','ast'].includes(command)) {
+if (!['run','build','bench','check','fmt','ast'].includes(command)) {
   console.error(`cannon: unknown command ${command}`);
   usage(1);
 }
@@ -74,14 +74,34 @@ try {
 
   if (command === 'ast') { console.log(JSON.stringify(parse(source), null, 2)); process.exit(0); }
 
-  const { code } = compile(source);
+  if (command === 'bench') {
+    const flag = args.indexOf('--iterations');
+    const iterations = flag >= 0 ? Number(args[flag + 1]) : 100;
+    const result = await benchmarkCompiler(source, { iterations });
+    console.log(JSON.stringify(result, null, 2));
+    process.exit(0);
+  }
+
   if (command === 'build') {
+    const targetFlag = args.indexOf('--target');
+    if (targetFlag >= 0) {
+      const target = args[targetFlag + 1];
+      if (!target) throw new Error('--target requires web, backend, or native');
+      const outputFlag = args.indexOf('-o');
+      const outDir = outputFlag >= 0 ? args[outputFlag + 1] : path.join(path.dirname(input), 'dist', target);
+      if (!outDir) throw new Error('-o requires an output directory');
+      const result = await buildTarget(source, target, { outDir, appName: path.basename(input, '.cannon') });
+      console.log(`${input} -> ${result.root} (${target}, ${result.manifest.digest})`);
+      process.exit(0);
+    }
+    const { code } = compile(source);
     const outputFlag = args.indexOf('-o');
     const output = outputFlag >= 0 ? args[outputFlag + 1] : input.replace(/\.cannon$/i, '.mjs');
     if (!output) { console.error('cannon: -o requires an output filename'); process.exit(1); }
     fs.writeFileSync(output, code, 'utf8'); console.log(`${input} -> ${output}`); process.exit(0);
   }
 
+  const { code } = compile(source);
   const result = spawnSync(process.execPath, ['--input-type=module', '--eval', code], { stdio: 'inherit' });
   if (result.error) throw result.error;
   process.exit(result.status ?? 1);
