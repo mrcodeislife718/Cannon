@@ -27,15 +27,21 @@ export function parse(source) {
     if (match('let','const')) return parseDeclaration();
     if (match('{')) return parseBlock();
 
-    if (match('identifier') && tokens[i + 1]?.type === '=') {
-      const name = take('identifier').value;
-      take('=');
+    const expression = parseExpression();
+    if (optional('=')) {
+      if (!['Identifier','MemberExpression'].includes(expression.type)) {
+        const token = current();
+        throw new CannonSyntaxError('Invalid assignment target', token.line, token.column);
+      }
       const value = parseExpression();
       optional(';');
-      return { type: 'AssignmentStatement', name, value };
+      return {
+        type: 'AssignmentStatement',
+        target: expression,
+        ...(expression.type === 'Identifier' ? { name: expression.name } : {}),
+        value,
+      };
     }
-
-    const expression = parseExpression();
     optional(';');
     return { type: 'ExpressionStatement', expression };
   }
@@ -46,9 +52,7 @@ export function parse(source) {
     take('(');
     const params = [];
     if (!match(')')) {
-      do {
-        params.push(take('identifier').value);
-      } while (optional(','));
+      do { params.push(take('identifier').value); } while (optional(','));
     }
     take(')');
     return { type: 'FunctionDeclaration', name, params, body: parseBlock() };
@@ -128,21 +132,66 @@ export function parse(source) {
       i++;
       return { type: 'UnaryExpression', operator, argument: parseUnary() };
     }
-    return parseCall();
+    return parsePostfix();
   }
 
-  function parseCall() {
+  function parsePostfix() {
     let expression = parsePrimary();
-    while (match('(')) {
-      take('(');
-      const args = [];
-      if (!match(')')) {
-        do { args.push(parseExpression()); } while (optional(','));
+    while (true) {
+      if (match('(')) {
+        take('(');
+        const args = [];
+        if (!match(')')) {
+          do { args.push(parseExpression()); } while (optional(','));
+        }
+        take(')');
+        expression = { type: 'CallExpression', callee: expression, arguments: args };
+        continue;
       }
-      take(')');
-      expression = { type: 'CallExpression', callee: expression, arguments: args };
+      if (match('.')) {
+        take('.');
+        const property = take('identifier').value;
+        expression = { type: 'MemberExpression', object: expression, property: { type: 'Identifier', name: property }, computed: false };
+        continue;
+      }
+      if (match('[')) {
+        take('[');
+        const property = parseExpression();
+        take(']');
+        expression = { type: 'MemberExpression', object: expression, property, computed: true };
+        continue;
+      }
+      break;
     }
     return expression;
+  }
+
+  function parseArray() {
+    take('[');
+    const elements = [];
+    while (!match(']')) {
+      elements.push(parseExpression());
+      if (!optional(',')) break;
+      if (match(']')) break;
+    }
+    take(']');
+    return { type: 'ArrayExpression', elements };
+  }
+
+  function parseObject() {
+    take('{');
+    const properties = [];
+    while (!match('}')) {
+      const keyToken = current();
+      if (!match('identifier','string')) throw new CannonSyntaxError('Object keys must be identifiers or strings', keyToken.line, keyToken.column);
+      i++;
+      take(':');
+      properties.push({ key: keyToken.value, value: parseExpression() });
+      if (!optional(',')) break;
+      if (match('}')) break;
+    }
+    take('}');
+    return { type: 'ObjectExpression', properties };
   }
 
   function parsePrimary() {
@@ -151,6 +200,8 @@ export function parse(source) {
     if (match('true','false')) { i++; return { type: 'Literal', value: token.type === 'true' }; }
     if (match('null')) { i++; return { type: 'Literal', value: null }; }
     if (match('identifier')) { i++; return { type: 'Identifier', name: token.value }; }
+    if (match('[')) return parseArray();
+    if (match('{')) return parseObject();
     if (match('(')) {
       take('(');
       const expression = parseExpression();
