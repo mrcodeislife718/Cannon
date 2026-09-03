@@ -35,7 +35,12 @@ export function parse(source) {
       }
       const value = parseExpression();
       optional(';');
-      return { type: 'AssignmentStatement', target: expression, value };
+      return {
+        type: 'AssignmentStatement',
+        target: expression,
+        ...(expression.type === 'Identifier' ? { name: expression.name } : {}),
+        value,
+      };
     }
     optional(';');
     return { type: 'ExpressionStatement', expression };
