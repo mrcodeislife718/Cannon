@@ -4,6 +4,7 @@ export function parse(source) {
   const tokens = lex(source);
   let i = 0;
   const current = () => tokens[i];
+  const peek = (offset = 1) => tokens[i + offset] ?? tokens[tokens.length - 1];
   const match = (...types) => types.includes(current().type);
   const take = (type) => {
     const token = current();
@@ -20,7 +21,7 @@ export function parse(source) {
   }
 
   function parseStatement() {
-    if (match('fn')) return parseFunction();
+    if (match('fn') || (match('async') && peek().type === 'fn')) return parseFunction();
     if (match('return')) return parseReturn();
     if (match('if')) return parseIf();
     if (match('while')) return parseWhile();
@@ -47,6 +48,7 @@ export function parse(source) {
   }
 
   function parseFunction() {
+    const async = Boolean(optional('async'));
     take('fn');
     const name = take('identifier').value;
     take('(');
@@ -55,7 +57,7 @@ export function parse(source) {
       do { params.push(take('identifier').value); } while (optional(','));
     }
     take(')');
-    return { type: 'FunctionDeclaration', name, params, body: parseBlock() };
+    return { type: 'FunctionDeclaration', name, params, async, body: parseBlock() };
   }
 
   function parseReturn() {
@@ -127,6 +129,10 @@ export function parse(source) {
   }
 
   function parseUnary() {
+    if (match('await')) {
+      take('await');
+      return { type: 'AwaitExpression', argument: parseUnary() };
+    }
     if (match('!','-','+')) {
       const operator = current().type;
       i++;
