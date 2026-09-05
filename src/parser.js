@@ -21,6 +21,8 @@ export function parse(source) {
   }
 
   function parseStatement() {
+    if (match('import')) return parseImport();
+    if (match('export')) return parseExport();
     if (match('fn') || (match('async') && peek().type === 'fn')) return parseFunction();
     if (match('return')) return parseReturn();
     if (match('if')) return parseIf();
@@ -36,15 +38,86 @@ export function parse(source) {
       }
       const value = parseExpression();
       optional(';');
-      return {
-        type: 'AssignmentStatement',
-        target: expression,
-        ...(expression.type === 'Identifier' ? { name: expression.name } : {}),
-        value,
-      };
+      return { type: 'AssignmentStatement', target: expression, ...(expression.type === 'Identifier' ? { name: expression.name } : {}), value };
     }
     optional(';');
     return { type: 'ExpressionStatement', expression };
+  }
+
+  function parseImport() {
+    take('import');
+    if (match('string')) {
+      const source = take('string').value;
+      optional(';');
+      return { type: 'ImportDeclaration', source, specifiers: [] };
+    }
+    const specifiers = [];
+    if (match('*')) {
+      take('*'); take('as');
+      const local = take('identifier').value;
+      specifiers.push({ type: 'ImportNamespaceSpecifier', local });
+    } else if (match('{')) {
+      take('{');
+      while (!match('}')) {
+        const imported = take('identifier').value;
+        let local = imported;
+        if (optional('as')) local = take('identifier').value;
+        specifiers.push({ type: 'ImportSpecifier', imported, local });
+        if (!optional(',')) break;
+      }
+      take('}');
+    } else {
+      const local = take('identifier').value;
+      specifiers.push({ type: 'ImportDefaultSpecifier', local });
+      if (optional(',')) {
+        if (match('*')) {
+          take('*'); take('as');
+          specifiers.push({ type: 'ImportNamespaceSpecifier', local: take('identifier').value });
+        } else {
+          take('{');
+          while (!match('}')) {
+            const imported = take('identifier').value;
+            let namedLocal = imported;
+            if (optional('as')) namedLocal = take('identifier').value;
+            specifiers.push({ type: 'ImportSpecifier', imported, local: namedLocal });
+            if (!optional(',')) break;
+          }
+          take('}');
+        }
+      }
+    }
+    take('from');
+    const source = take('string').value;
+    optional(';');
+    return { type: 'ImportDeclaration', source, specifiers };
+  }
+
+  function parseExport() {
+    take('export');
+    if (optional('default')) {
+      if (match('fn') || (match('async') && peek().type === 'fn')) return { type: 'ExportDefaultDeclaration', declaration: parseFunction() };
+      const declaration = parseExpression();
+      optional(';');
+      return { type: 'ExportDefaultDeclaration', declaration };
+    }
+    if (match('fn') || (match('async') && peek().type === 'fn') || match('let','const')) {
+      const declaration = match('let','const') ? parseDeclaration() : parseFunction();
+      return { type: 'ExportNamedDeclaration', declaration, specifiers: [], source: null };
+    }
+    take('{');
+    const specifiers = [];
+    while (!match('}')) {
+      const local = take('identifier').value;
+      let exported = local;
+      if (optional('as')) exported = take('identifier').value;
+      specifiers.push({ local, exported });
+      if (!optional(',')) break;
+    }
+    take('}');
+    let source = null;
+    if (optional('from')) source = take('string').value;
+    optional(';');
+    return { type: 'ExportNamedDeclaration', declaration: null, specifiers, source };
   }
 
   function parseFunction() {
@@ -68,8 +141,7 @@ export function parse(source) {
   }
 
   function parseIf() {
-    take('if');
-    take('(');
+    take('if'); take('(');
     const test = parseExpression();
     take(')');
     const consequent = parseBlock();
@@ -79,16 +151,14 @@ export function parse(source) {
   }
 
   function parseWhile() {
-    take('while');
-    take('(');
+    take('while'); take('(');
     const test = parseExpression();
     take(')');
     return { type: 'WhileStatement', test, body: parseBlock() };
   }
 
   function parseDeclaration() {
-    const kind = current().type;
-    i++;
+    const kind = current().type; i++;
     const name = take('identifier').value;
     take('=');
     const value = parseExpression();
@@ -110,10 +180,7 @@ export function parse(source) {
     return { type: 'BlockStatement', body };
   }
 
-  const PRECEDENCE = new Map([
-    ['||',1], ['&&',2], ['==',3], ['!=',3], ['<',4], ['<=',4], ['>',4], ['>=',4],
-    ['+',5], ['-',5], ['*',6], ['/',6], ['%',6],
-  ]);
+  const PRECEDENCE = new Map([['||',1], ['&&',2], ['==',3], ['!=',3], ['<',4], ['<=',4], ['>',4], ['>=',4], ['+',5], ['-',5], ['*',6], ['/',6], ['%',6]]);
 
   function parseExpression(minPrecedence = 0) {
     let left = parseUnary();
@@ -129,15 +196,8 @@ export function parse(source) {
   }
 
   function parseUnary() {
-    if (match('await')) {
-      take('await');
-      return { type: 'AwaitExpression', argument: parseUnary() };
-    }
-    if (match('!','-','+')) {
-      const operator = current().type;
-      i++;
-      return { type: 'UnaryExpression', operator, argument: parseUnary() };
-    }
+    if (match('await')) { take('await'); return { type: 'AwaitExpression', argument: parseUnary() }; }
+    if (match('!','-','+')) { const operator = current().type; i++; return { type: 'UnaryExpression', operator, argument: parseUnary() }; }
     return parsePostfix();
   }
 
@@ -147,9 +207,7 @@ export function parse(source) {
       if (match('(')) {
         take('(');
         const args = [];
-        if (!match(')')) {
-          do { args.push(parseExpression()); } while (optional(','));
-        }
+        if (!match(')')) do { args.push(parseExpression()); } while (optional(','));
         take(')');
         expression = { type: 'CallExpression', callee: expression, arguments: args };
         continue;
@@ -175,11 +233,7 @@ export function parse(source) {
   function parseArray() {
     take('[');
     const elements = [];
-    while (!match(']')) {
-      elements.push(parseExpression());
-      if (!optional(',')) break;
-      if (match(']')) break;
-    }
+    while (!match(']')) { elements.push(parseExpression()); if (!optional(',')) break; if (match(']')) break; }
     take(']');
     return { type: 'ArrayExpression', elements };
   }
@@ -190,8 +244,7 @@ export function parse(source) {
     while (!match('}')) {
       const keyToken = current();
       if (!match('identifier','string')) throw new CannonSyntaxError('Object keys must be identifiers or strings', keyToken.line, keyToken.column);
-      i++;
-      take(':');
+      i++; take(':');
       properties.push({ key: keyToken.value, value: parseExpression() });
       if (!optional(',')) break;
       if (match('}')) break;
@@ -208,12 +261,7 @@ export function parse(source) {
     if (match('identifier')) { i++; return { type: 'Identifier', name: token.value }; }
     if (match('[')) return parseArray();
     if (match('{')) return parseObject();
-    if (match('(')) {
-      take('(');
-      const expression = parseExpression();
-      take(')');
-      return expression;
-    }
+    if (match('(')) { take('('); const expression = parseExpression(); take(')'); return expression; }
     throw new CannonSyntaxError(`Expected expression, found ${token.type}`, token.line, token.column);
   }
 
