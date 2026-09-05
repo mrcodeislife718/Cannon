@@ -41,7 +41,7 @@ export function emitJavaScript(ast) {
         declaredScopes.push(new Set(node.params));
         const body = emitBlock(node.body, level);
         declaredScopes.pop();
-        return `${pad}function ${node.name}(${node.params.join(', ')}) ${body}`;
+        return `${pad}${node.async ? 'async ' : ''}function ${node.name}(${node.params.join(', ')}) ${body}`;
       }
       case 'IfStatement': {
         const consequent = emitBlock(node.consequent, level);
@@ -70,6 +70,7 @@ export function emitJavaScript(ast) {
         ? `${emitExpression(node.object)}[${emitExpression(node.property)}]`
         : `${emitExpression(node.object)}.${node.property.name}`;
       case 'UnaryExpression': return `(${node.operator}${emitExpression(node.argument)})`;
+      case 'AwaitExpression': return `(await ${emitExpression(node.argument)})`;
       case 'BinaryExpression': {
         const operator = node.operator === '==' ? '===' : node.operator === '!=' ? '!==' : node.operator;
         return `(${emitExpression(node.left)} ${operator} ${emitExpression(node.right)})`;
