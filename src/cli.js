@@ -16,7 +16,7 @@ if (command?.endsWith('.cannon')) {
 }
 
 function usage(code = 0) {
-  console.log(`cannon <file.cannon>\ncannon <command> [arguments]\n\nCommands:\n  run <file>                         Compile and execute a .cannon program\n  build <file> [-o file]             Compile a .cannon program to JavaScript\n  build <file> --target <name> [-o dir]\n                                     Build web, backend, or native target artifacts\n  bench <file> [--iterations N]      Measure compiler latency without asserting a claim\n  check <file>                       Parse and validate Cannon source\n  fmt <file> [--write]               Format Cannon source\n  test [directory]                   Discover and run *.test.cannon/*.spec.cannon\n  add <package[@version]>            Add and lock a dependency\n  install [directory]                Resolve locked project dependencies\n  create <directory>                 Create a Cannon project\n  ast <file>                         Print the parsed AST`);
+  console.log(`cannon <file.cannon>\ncannon <command> [arguments]\n\nCommands:\n  run <file>                         Compile and execute a .cannon program\n  build <file> [-o file]             Compile a .cannon program to JavaScript\n  build <file> --target <name> [-o dir]\n                                     Build web, backend, or native target artifacts\n  bench <file> [--iterations N]      Measure compiler latency without asserting a claim\n  check <file>                       Parse and validate Cannon source\n  fmt <file> [--write]               Format Cannon source\n  test [directory]                   Discover and run *.test.cannon/*.spec.cannon\n  add <package[@version]>            Resolve and lock a dependency using CANNON_REGISTRY_URL\n  install [directory] [--frozen]     Install verified locked dependencies\n  create <directory>                 Create a Cannon project\n  ast <file>                         Print the parsed AST\n\nRegistry environment:\n  CANNON_REGISTRY_URL                Base URL for the Cannon package registry\n  CANNON_REGISTRY_TOKEN              Optional bearer token`);
   process.exit(code);
 }
 
@@ -29,7 +29,7 @@ if (command === 'add') {
 }
 
 if (command === 'install') {
-  try { const lock = await install(input ?? process.cwd()); console.log(`installed ${Object.keys(lock.packages ?? {}).length} dependencies`); process.exit(0); }
+  try { const lock = await install(input && !input.startsWith('--') ? input : process.cwd(), { frozen: args.includes('--frozen') }); console.log(`installed ${Object.keys(lock.packages ?? {}).length} dependencies`); process.exit(0); }
   catch (error) { console.error(`cannon: ${error.message}`); process.exit(1); }
 }
 
