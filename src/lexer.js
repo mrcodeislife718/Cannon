@@ -1,4 +1,4 @@
-const KEYWORDS = new Set(['fn','async','await','return','if','else','while','true','false','null','let','const']);
+const KEYWORDS = new Set(['fn','async','await','return','if','else','while','true','false','null','let','const','import','export','from','as','default']);
 
 export class CannonSyntaxError extends SyntaxError {
   constructor(message, line, column) {
@@ -55,9 +55,7 @@ export function lex(source) {
           const esc = advance();
           const escapes = { n:'\n', r:'\r', t:'\t', '"':'"', "'":"'", '\\':'\\' };
           value += escapes[esc] ?? esc;
-        } else {
-          value += advance();
-        }
+        } else value += advance();
       }
       if (current() !== quote) throw new CannonSyntaxError('Unterminated string', startLine, startColumn);
       advance();
