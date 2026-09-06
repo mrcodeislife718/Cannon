@@ -24,6 +24,7 @@ function printStatement(node, level) {
     case 'IfStatement': return `${pad}if (${printExpression(node.test)}) ${printBlock(node.consequent, level)}${node.alternate ? ` else ${node.alternate.type === 'IfStatement' ? printStatement(node.alternate, level).trimStart() : printBlock(node.alternate, level)}` : ''}`;
     case 'WhileStatement': return `${pad}while (${printExpression(node.test)}) ${printBlock(node.body, level)}`;
     case 'ForStatement': return `${pad}for (${printForClause(node.init)}; ${node.test ? printExpression(node.test) : ''}; ${printForClause(node.update)}) ${printBlock(node.body, level)}`;
+    case 'ForInStatement': return `${pad}for ${node.binding} in ${printExpression(node.iterable)} ${printBlock(node.body, level)}`;
     case 'BlockStatement': return `${pad}${printBlock(node, level)}`;
     default: throw new Error(`Unsupported Cannon statement for formatting: ${node.type}`);
   }
