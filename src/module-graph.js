@@ -31,47 +31,50 @@ export async function compileModuleGraph({ entry, root = process.cwd() } = {}) {
     if (visiting.has(id)) return null;
     visiting.add(id);
 
-    const source = await fs.readFile(realFile, 'utf8');
-    const compiled = compile(source);
-    const ast = structuredClone(compiled.ast);
-    const dependencyRecords = [];
+    try {
+      const source = await fs.readFile(realFile, 'utf8');
+      const compiled = compile(source);
+      const ast = structuredClone(compiled.ast);
+      const dependencyRecords = [];
 
-    for (const node of ast.body) {
-      if (node.type !== 'ImportDeclaration' && !(node.type === 'ExportNamedDeclaration' && node.source)) continue;
-      const specifier = node.source;
-      if (typeof specifier !== 'string') continue;
-      if (isBareSpecifier(specifier)) {
-        externals.add(specifier);
-        dependencyRecords.push({ specifier, kind: 'external', target: specifier });
-        continue;
+      for (const node of ast.body) {
+        if (node.type !== 'ImportDeclaration' && !(node.type === 'ExportNamedDeclaration' && node.source)) continue;
+        const specifier = node.source;
+        if (typeof specifier !== 'string') continue;
+        if (isBareSpecifier(specifier)) {
+          externals.add(specifier);
+          dependencyRecords.push({ specifier, kind: 'external', target: specifier });
+          continue;
+        }
+        if (path.isAbsolute(specifier) || specifier.startsWith('file:')) {
+          throw new CannonModuleGraphError(`absolute module specifier is not allowed: ${specifier}`, { code: 'CANNON_MODULE_ABSOLUTE_SPECIFIER', file: id, specifier });
+        }
+        const dependencyFile = await resolveLocalModule(realFile, specifier, rootReal);
+        const dependencyId = toModuleId(rootReal, dependencyFile);
+        const dependencyOutput = outputId(dependencyId);
+        const currentOutput = outputId(id);
+        let rewritten = path.posix.relative(path.posix.dirname(currentOutput), dependencyOutput);
+        if (!rewritten.startsWith('.')) rewritten = `./${rewritten}`;
+        node.source = rewritten;
+        dependencyRecords.push({ specifier, kind: 'local', target: dependencyId, output: rewritten });
+        await visit(dependencyFile);
       }
-      if (path.isAbsolute(specifier) || specifier.startsWith('file:')) {
-        throw new CannonModuleGraphError(`absolute module specifier is not allowed: ${specifier}`, { code: 'CANNON_MODULE_ABSOLUTE_SPECIFIER', file: id, specifier });
-      }
-      const dependencyFile = await resolveLocalModule(realFile, specifier, rootReal);
-      const dependencyId = toModuleId(rootReal, dependencyFile);
-      const dependencyOutput = outputId(dependencyId);
-      const currentOutput = outputId(id);
-      let rewritten = path.posix.relative(path.posix.dirname(currentOutput), dependencyOutput);
-      if (!rewritten.startsWith('.')) rewritten = `./${rewritten}`;
-      node.source = rewritten;
-      dependencyRecords.push({ specifier, kind: 'local', target: dependencyId, output: rewritten });
-      await visit(dependencyFile);
+
+      const sourceDigest = sha256(source);
+      const code = emitJavaScript(ast);
+      const record = Object.freeze({
+        id,
+        file: realFile,
+        output: outputId(id),
+        sourceDigest,
+        dependencies: dependencyRecords.map((entry) => Object.freeze({ ...entry })),
+        code
+      });
+      modules.set(id, record);
+      return record;
+    } finally {
+      visiting.delete(id);
     }
-
-    const sourceDigest = sha256(source);
-    const code = emitJavaScript(ast);
-    const record = Object.freeze({
-      id,
-      file: realFile,
-      output: outputId(id),
-      sourceDigest,
-      dependencies: dependencyRecords.map((entry) => Object.freeze({ ...entry })),
-      code
-    });
-    modules.set(id, record);
-    visiting.delete(id);
-    return record;
   };
 
   await visit(entryReal);
@@ -99,13 +102,15 @@ export async function compileModuleGraph({ entry, root = process.cwd() } = {}) {
 
 export async function writeModuleGraph(graph, outDir, { clean = false } = {}) {
   if (graph?.protocol !== 'cannon-module-graph/1' || !Array.isArray(graph.modules)) throw new TypeError('valid Cannon module graph required');
-  const targetRoot = path.resolve(outDir);
+  let targetRoot = path.resolve(outDir);
   if (clean) await fs.rm(targetRoot, { recursive: true, force: true });
   await fs.mkdir(targetRoot, { recursive: true });
+  targetRoot = await fs.realpath(targetRoot);
+
   for (const module of graph.modules) {
     const target = path.resolve(targetRoot, module.output);
     if (target !== targetRoot && !target.startsWith(targetRoot + path.sep)) throw new CannonModuleGraphError(`output escapes target directory: ${module.output}`, { code: 'CANNON_MODULE_OUTPUT_ESCAPE', file: module.id });
-    await fs.mkdir(path.dirname(target), { recursive: true });
+    await ensureSafeParentDirectory(targetRoot, path.dirname(target));
     await atomicWrite(target, module.code);
   }
   const manifestPath = path.join(targetRoot, 'cannon-module-graph.json');
@@ -176,17 +181,42 @@ function outputId(id) {
   return id.endsWith('.cannon') ? `${id.slice(0, -'.cannon'.length)}.js` : `${id}.js`;
 }
 
+async function ensureSafeParentDirectory(root, directory) {
+  const relative = path.relative(root, directory);
+  if (!relative) return;
+  if (relative.startsWith('..') || path.isAbsolute(relative)) throw new CannonModuleGraphError(`output directory escapes target root: ${directory}`, { code: 'CANNON_MODULE_OUTPUT_ESCAPE' });
+  let current = root;
+  for (const component of relative.split(path.sep).filter(Boolean)) {
+    current = path.join(current, component);
+    try {
+      const stat = await fs.lstat(current);
+      if (stat.isSymbolicLink()) throw new CannonModuleGraphError(`output path contains symlink: ${current}`, { code: 'CANNON_MODULE_OUTPUT_SYMLINK' });
+      if (!stat.isDirectory()) throw new CannonModuleGraphError(`output parent is not a directory: ${current}`, { code: 'CANNON_MODULE_OUTPUT_PARENT' });
+    } catch (error) {
+      if (error instanceof CannonModuleGraphError) throw error;
+      if (error.code !== 'ENOENT') throw error;
+      await fs.mkdir(current, { mode: 0o755 });
+    }
+  }
+}
+
 async function atomicWrite(file, content) {
   const temporary = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  const handle = await fs.open(temporary, 'wx', 0o600);
+  let handle = null;
   try {
+    handle = await fs.open(temporary, 'wx', 0o600);
     await handle.writeFile(content, 'utf8');
     await handle.sync();
-  } finally {
     await handle.close();
+    handle = null;
+    await fs.rename(temporary, file);
+  } catch (error) {
+    if (handle) {
+      try { await handle.close(); } catch {}
+    }
+    await fs.rm(temporary, { force: true }).catch(() => {});
+    throw error;
   }
-  try { await fs.rename(temporary, file); }
-  catch (error) { await fs.rm(temporary, { force: true }); throw error; }
 }
 
 function sha256(value) { return crypto.createHash('sha256').update(value).digest('hex'); }
