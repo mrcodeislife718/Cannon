@@ -7,3 +7,4 @@ export { createFrontendArtifact, verifyFrontendArtifact, serializeFrontendArtifa
 export { format } from './formatter.js';
 export { check, run, HttpRegistryClient, registryFromEnvironment, addDependency, install, discoverTests, runTests, createProject, moduleResolver } from './toolchain.js';
 export { buildTarget, executeTarget, reproducibleTargetBuild, benchmarkCompiler, emitNativeC } from './targets.js';
+export { RecoveryStore, RecoveryCorruptionError } from './disaster-recovery.js';
