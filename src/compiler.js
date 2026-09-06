@@ -31,6 +31,11 @@ export function emitJavaScript(ast) {
     if (node.type === 'ExpressionStatement') return emitExpression(node.expression);
     throw new Error(`Unsupported Cannon for-clause statement: ${node.type}`);
   }
+  function emitFunctionParameters(node) {
+    const parameters = node.params.map((param) => node.defaults?.[param] ? `${param} = ${emitExpression(node.defaults[param])}` : param);
+    if (node.restParam) parameters.push(`...${node.restParam}`);
+    return parameters.join(', ');
+  }
   function emitTry(node, level) {
     const pad = indent(level);
     let output = `${pad}try ${emitBlock(node.body, level)}`;
@@ -78,10 +83,11 @@ export function emitJavaScript(ast) {
       case 'ContinueStatement': return `${pad}continue;`;
       case 'FunctionDeclaration': {
         currentScope().add(node.name);
-        declaredScopes.push(new Set(node.params));
+        const bindings = node.restParam ? [...node.params, node.restParam] : [...node.params];
+        declaredScopes.push(new Set(bindings));
         const body = emitBlock(node.body, level);
         declaredScopes.pop();
-        return `${pad}${node.async ? 'async ' : ''}function ${node.name}(${node.params.join(', ')}) ${body}`;
+        return `${pad}${node.async ? 'async ' : ''}function ${node.name}(${emitFunctionParameters(node)}) ${body}`;
       }
       case 'IfStatement': {
         const consequent = emitBlock(node.consequent, level);
