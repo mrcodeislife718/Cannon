@@ -13,10 +13,22 @@ export function analyze(ast) {
   global.define('print', { kind: 'builtin', variadic: true, async: false });
   const exported = new Set();
 
+  function functionSymbol(candidate) {
+    const defaultCount = Object.keys(candidate.defaults ?? {}).length;
+    return {
+      kind: 'function',
+      requiredArity: candidate.params.length - defaultCount,
+      maximumArity: candidate.restParam ? Infinity : candidate.params.length,
+      variadic: Boolean(candidate.restParam),
+      async: Boolean(candidate.async),
+      node: candidate,
+    };
+  }
+
   function predeclareFunctions(body, scope) {
     for (const statement of body) {
       const candidate = statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement.type === 'ExportDefaultDeclaration' ? statement.declaration : statement;
-      if (candidate?.type === 'FunctionDeclaration') scope.define(candidate.name, { kind: 'function', arity: candidate.params.length, async: Boolean(candidate.async), node: candidate });
+      if (candidate?.type === 'FunctionDeclaration') scope.define(candidate.name, functionSymbol(candidate));
     }
   }
 
@@ -62,7 +74,16 @@ export function analyze(ast) {
       case 'ContinueStatement': if (context.loopDepth === 0) throw new CannonSemanticError('continue can only be used inside a loop'); return;
       case 'FunctionDeclaration': {
         const fnScope = new Scope(scope), seen = new Set();
-        for (const param of node.params) { if (seen.has(param)) throw new CannonSemanticError(`Duplicate parameter ${param} in function ${node.name}`); seen.add(param); fnScope.define(param, { kind: 'parameter', dynamic: true }); }
+        for (const param of node.params) {
+          if (seen.has(param)) throw new CannonSemanticError(`Duplicate parameter ${param} in function ${node.name}`);
+          seen.add(param);
+          if (node.defaults?.[param]) analyzeExpression(node.defaults[param], fnScope, context);
+          fnScope.define(param, { kind: 'parameter', dynamic: true, defaulted: Boolean(node.defaults?.[param]) });
+        }
+        if (node.restParam) {
+          if (seen.has(node.restParam)) throw new CannonSemanticError(`Duplicate parameter ${node.restParam} in function ${node.name}`);
+          fnScope.define(node.restParam, { kind: 'parameter', dynamic: true, variadic: true });
+        }
         analyzeBody(node.body.body, fnScope, { functionDepth: context.functionDepth + 1, loopDepth: 0, catchDepth: 0, async: Boolean(node.async), functionName: node.name });
         return;
       }
@@ -120,7 +141,16 @@ export function analyze(ast) {
       case 'CallExpression': {
         analyzeExpression(node.callee, scope, context);
         for (const arg of node.arguments) analyzeExpression(arg, scope, context);
-        if (node.callee.type === 'Identifier') { const symbol = scope.resolve(node.callee.name); if (symbol?.kind === 'function' && node.arguments.length !== symbol.arity) throw new CannonSemanticError(`${node.callee.name} expects ${symbol.arity} arguments, received ${node.arguments.length}`); }
+        if (node.callee.type === 'Identifier') {
+          const symbol = scope.resolve(node.callee.name);
+          if (symbol?.kind === 'function') {
+            const count = node.arguments.length;
+            if (count < symbol.requiredArity || count > symbol.maximumArity) {
+              const expected = symbol.variadic ? `at least ${symbol.requiredArity}` : symbol.requiredArity === symbol.maximumArity ? `${symbol.requiredArity}` : `${symbol.requiredArity}-${symbol.maximumArity}`;
+              throw new CannonSemanticError(`${node.callee.name} expects ${expected} arguments, received ${count}`);
+            }
+          }
+        }
         return;
       }
       default: throw new CannonSemanticError(`Unsupported expression during analysis: ${node.type}`);
