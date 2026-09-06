@@ -47,10 +47,8 @@ export function parse(source) {
     if (match('fn') || (match('async') && peek().type==='fn') || match('let','const')) { const declaration=match('let','const')?parseDeclaration():parseFunction(); return { type:'ExportNamedDeclaration', declaration, specifiers:[], source:null }; }
     take('{'); const specifiers=[]; while(!match('}')) { const local=take('identifier').value; let exported=local; if(optional('as')) exported=take('identifier').value; specifiers.push({local,exported}); if(!optional(',')) break; } take('}'); let source=null; if(optional('from')) source=take('string').value; optional(';'); return { type:'ExportNamedDeclaration', declaration:null, specifiers, source };
   }
-  function parseFunction() {
-    const async = Boolean(optional('async'));
-    take('fn');
-    const name = take('identifier').value;
+
+  function parseParameterList() {
     take('(');
     const params = [];
     const defaults = {};
@@ -75,8 +73,24 @@ export function parse(source) {
       if (!optional(',')) break;
     }
     take(')');
-    return { type:'FunctionDeclaration', name, params, defaults, restParam, async, body:parseBlock() };
+    return { params, defaults, restParam };
   }
+
+  function parseFunction() {
+    const async = Boolean(optional('async'));
+    take('fn');
+    const name = take('identifier').value;
+    const parameters = parseParameterList();
+    return { type:'FunctionDeclaration', name, ...parameters, async, body:parseBlock() };
+  }
+
+  function parseFunctionExpression() {
+    const async = Boolean(optional('async'));
+    take('fn');
+    const parameters = parseParameterList();
+    return { type:'FunctionExpression', ...parameters, async, body:parseBlock() };
+  }
+
   function parseReturn() { take('return'); const value=match(';','}')?null:parseExpression(); optional(';'); return { type:'ReturnStatement', value }; }
   function parseRaise() { take('raise'); const value=match(';','}') ? null : parseExpression(); optional(';'); return { type:'RaiseStatement', value }; }
   function parseTry() {
@@ -129,6 +143,17 @@ export function parse(source) {
   function parsePostfix() { let expression=parsePrimary(); while(true) { if(match('(')) { take('('); const args=[]; if(!match(')')) do { args.push(parseExpression()); } while(optional(',')); take(')'); expression={type:'CallExpression',callee:expression,arguments:args}; continue; } if(match('.')) { take('.'); expression={type:'MemberExpression',object:expression,property:{type:'Identifier',name:take('identifier').value},computed:false}; continue; } if(match('[')) { take('['); const property=parseExpression(); take(']'); expression={type:'MemberExpression',object:expression,property,computed:true}; continue; } break; } return expression; }
   function parseArray() { take('['); const elements=[]; while(!match(']')) { elements.push(parseExpression()); if(!optional(',')) break; if(match(']')) break; } take(']'); return {type:'ArrayExpression',elements}; }
   function parseObject() { take('{'); const properties=[]; while(!match('}')) { const keyToken=current(); if(!match('identifier','string')) throw new CannonSyntaxError('Object keys must be identifiers or strings',keyToken.line,keyToken.column); i++; take(':'); properties.push({key:keyToken.value,value:parseExpression()}); if(!optional(',')) break; if(match('}')) break; } take('}'); return {type:'ObjectExpression',properties}; }
-  function parsePrimary() { const token=current(); if(match('number','string')) { i++; return {type:'Literal',value:token.value}; } if(match('true','false')) { i++; return {type:'Literal',value:token.type==='true'}; } if(match('null')) { i++; return {type:'Literal',value:null}; } if(match('identifier')) { i++; return {type:'Identifier',name:token.value}; } if(match('[')) return parseArray(); if(match('{')) return parseObject(); if(match('(')) { take('('); const expression=parseExpression(); take(')'); return expression; } throw new CannonSyntaxError(`Expected expression, found ${token.type}`,token.line,token.column); }
+  function parsePrimary() {
+    const token=current();
+    if(match('number','string')) { i++; return {type:'Literal',value:token.value}; }
+    if(match('true','false')) { i++; return {type:'Literal',value:token.type==='true'}; }
+    if(match('null')) { i++; return {type:'Literal',value:null}; }
+    if(match('fn') || (match('async') && peek().type === 'fn')) return parseFunctionExpression();
+    if(match('identifier')) { i++; return {type:'Identifier',name:token.value}; }
+    if(match('[')) return parseArray();
+    if(match('{')) return parseObject();
+    if(match('(')) { take('('); const expression=parseExpression(); take(')'); return expression; }
+    throw new CannonSyntaxError(`Expected expression, found ${token.type}`,token.line,token.column);
+  }
   return parseProgram();
 }
