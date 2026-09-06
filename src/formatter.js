@@ -18,6 +18,8 @@ function printStatement(node, level) {
     case 'AssignmentStatement': return `${pad}${printAssignment(node)}`;
     case 'ExpressionStatement': return `${pad}${printExpression(node.expression)}`;
     case 'ReturnStatement': return `${pad}return${node.value ? ` ${printExpression(node.value)}` : ''}`;
+    case 'RaiseStatement': return `${pad}raise${node.value ? ` ${printExpression(node.value)}` : ''}`;
+    case 'TryStatement': return `${pad}${printTry(node, level)}`;
     case 'BreakStatement': return `${pad}break`;
     case 'ContinueStatement': return `${pad}continue`;
     case 'FunctionDeclaration': return `${pad}${printFunction(node, level)}`;
@@ -28,6 +30,13 @@ function printStatement(node, level) {
     case 'BlockStatement': return `${pad}${printBlock(node, level)}`;
     default: throw new Error(`Unsupported Cannon statement for formatting: ${node.type}`);
   }
+}
+
+function printTry(node, level) {
+  let output = `try ${printBlock(node.body, level)}`;
+  if (node.handler) output += ` catch${node.handler.param ? ` ${node.handler.param}` : ''} ${printBlock(node.handler.body, level)}`;
+  if (node.finalizer) output += ` finally ${printBlock(node.finalizer, level)}`;
+  return output;
 }
 
 function printForClause(node) {
