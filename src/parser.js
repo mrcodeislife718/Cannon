@@ -18,6 +18,8 @@ export function parse(source) {
     if (match('if')) return parseIf();
     if (match('while')) return parseWhile();
     if (match('for')) return parseFor();
+    if (match('try')) return parseTry();
+    if (match('raise')) return parseRaise();
     if (match('break')) { take('break'); optional(';'); return { type: 'BreakStatement' }; }
     if (match('continue')) { take('continue'); optional(';'); return { type: 'ContinueStatement' }; }
     if (match('let','const')) return parseDeclaration();
@@ -47,6 +49,20 @@ export function parse(source) {
   }
   function parseFunction() { const async=Boolean(optional('async')); take('fn'); const name=take('identifier').value; take('('); const params=[]; if(!match(')')) do { params.push(take('identifier').value); } while(optional(',')); take(')'); return { type:'FunctionDeclaration', name, params, async, body:parseBlock() }; }
   function parseReturn() { take('return'); const value=match(';','}')?null:parseExpression(); optional(';'); return { type:'ReturnStatement', value }; }
+  function parseRaise() { take('raise'); const value=match(';','}') ? null : parseExpression(); optional(';'); return { type:'RaiseStatement', value }; }
+  function parseTry() {
+    take('try');
+    const body = parseBlock();
+    let handler = null;
+    let finalizer = null;
+    if (optional('catch')) {
+      const param = match('identifier') ? take('identifier').value : null;
+      handler = { type: 'CatchClause', param, body: parseBlock() };
+    }
+    if (optional('finally')) finalizer = parseBlock();
+    if (!handler && !finalizer) { const token = current(); throw new CannonSyntaxError('try requires catch or finally', token.line, token.column); }
+    return { type: 'TryStatement', body, handler, finalizer };
+  }
   function parseIf() { take('if'); take('('); const test=parseExpression(); take(')'); const consequent=parseBlock(); let alternate=null; if(optional('else')) alternate=match('if')?parseIf():parseBlock(); return { type:'IfStatement', test, consequent, alternate }; }
   function parseWhile() { take('while'); take('('); const test=parseExpression(); take(')'); return { type:'WhileStatement', test, body:parseBlock() }; }
   function parseFor() {
