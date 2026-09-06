@@ -45,6 +45,7 @@ export function lex(source) {
       let value = ''; while (i < source.length && /[A-Za-z0-9_]/.test(current())) value += advance();
       push(KEYWORDS.has(value) ? value : 'identifier', value, startLine, startColumn); continue;
     }
+    if (source.slice(i, i + 3) === '...') { advance(); advance(); advance(); push('...', '...', startLine, startColumn); continue; }
     const two = source.slice(i, i + 2);
     if (['==','!=','<=','>=','&&','||'].includes(two)) { advance(); advance(); push(two, two, startLine, startColumn); continue; }
     if ('{}()[],.;:+-*/%=<>!'.includes(ch)) { advance(); push(ch, ch, startLine, startColumn); continue; }
