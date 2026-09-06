@@ -31,45 +31,48 @@ export function analyze(ast) {
         for (const specifier of node.specifiers) scope.define(specifier.local, { kind: 'import', source: node.source, imported: specifier.imported ?? (specifier.type === 'ImportDefaultSpecifier' ? 'default' : '*') });
         return;
       case 'ExportNamedDeclaration':
-        if (node.declaration) {
-          analyzeStatement(node.declaration, scope, context);
-          const name = node.declaration.name;
-          if (name) exported.add(name);
-          return;
-        }
-        for (const specifier of node.specifiers) {
-          if (!node.source && !scope.resolve(specifier.local)) throw new CannonSemanticError(`Cannot export undefined binding: ${specifier.local}`);
-          exported.add(specifier.exported);
-        }
+        if (node.declaration) { analyzeStatement(node.declaration, scope, context); if (node.declaration.name) exported.add(node.declaration.name); return; }
+        for (const specifier of node.specifiers) { if (!node.source && !scope.resolve(specifier.local)) throw new CannonSemanticError(`Cannot export undefined binding: ${specifier.local}`); exported.add(specifier.exported); }
         return;
       case 'ExportDefaultDeclaration':
-        if (node.declaration.type === 'FunctionDeclaration') analyzeStatement(node.declaration, scope, context);
-        else analyzeExpression(node.declaration, scope, context);
-        exported.add('default');
-        return;
-      case 'VariableDeclaration':
-        analyzeExpression(node.value, scope, context);
-        scope.define(node.name, { kind: node.kind === 'const' ? 'const' : 'variable' });
-        return;
+        if (node.declaration.type === 'FunctionDeclaration') analyzeStatement(node.declaration, scope, context); else analyzeExpression(node.declaration, scope, context);
+        exported.add('default'); return;
+      case 'VariableDeclaration': analyzeExpression(node.value, scope, context); scope.define(node.name, { kind: node.kind === 'const' ? 'const' : 'variable' }); return;
       case 'AssignmentStatement': analyzeAssignment(node.target, node.value, scope, context); return;
       case 'ExpressionStatement': analyzeExpression(node.expression, scope, context); return;
       case 'ReturnStatement':
         if (context.functionDepth === 0) throw new CannonSemanticError('return can only be used inside a function');
         if (node.value) analyzeExpression(node.value, scope, context);
         return;
+      case 'BreakStatement':
+        if (context.loopDepth === 0) throw new CannonSemanticError('break can only be used inside a loop');
+        return;
+      case 'ContinueStatement':
+        if (context.loopDepth === 0) throw new CannonSemanticError('continue can only be used inside a loop');
+        return;
       case 'FunctionDeclaration': {
-        const fnScope = new Scope(scope); const seen = new Set();
+        const fnScope = new Scope(scope), seen = new Set();
         for (const param of node.params) { if (seen.has(param)) throw new CannonSemanticError(`Duplicate parameter ${param} in function ${node.name}`); seen.add(param); fnScope.define(param, { kind: 'parameter' }); }
-        analyzeBody(node.body.body, fnScope, { functionDepth: context.functionDepth + 1, async: Boolean(node.async), functionName: node.name });
+        analyzeBody(node.body.body, fnScope, { functionDepth: context.functionDepth + 1, loopDepth: 0, async: Boolean(node.async), functionName: node.name });
         return;
       }
-      case 'IfStatement': {
+      case 'IfStatement':
         analyzeExpression(node.test, scope, context);
         analyzeBody(node.consequent.body, new Scope(scope), context);
         if (node.alternate) node.alternate.type === 'IfStatement' ? analyzeStatement(node.alternate, new Scope(scope), context) : analyzeBody(node.alternate.body, new Scope(scope), context);
         return;
+      case 'WhileStatement':
+        analyzeExpression(node.test, scope, context);
+        analyzeBody(node.body.body, new Scope(scope), { ...context, loopDepth: context.loopDepth + 1 });
+        return;
+      case 'ForStatement': {
+        const loopScope = new Scope(scope);
+        if (node.init) analyzeStatement(node.init, loopScope, context);
+        if (node.test) analyzeExpression(node.test, loopScope, context);
+        if (node.update) analyzeStatement(node.update, loopScope, { ...context, loopDepth: context.loopDepth + 1 });
+        analyzeBody(node.body.body, loopScope, { ...context, loopDepth: context.loopDepth + 1 });
+        return;
       }
-      case 'WhileStatement': analyzeExpression(node.test, scope, context); analyzeBody(node.body.body, new Scope(scope), context); return;
       case 'BlockStatement': analyzeBody(node.body, new Scope(scope), context); return;
       default: throw new CannonSemanticError(`Unsupported statement during analysis: ${node.type}`);
     }
@@ -107,7 +110,7 @@ export function analyze(ast) {
     }
   }
 
-  analyzeBody(ast.body, global, { functionDepth: 0, async: false, functionName: null });
+  analyzeBody(ast.body, global, { functionDepth: 0, loopDepth: 0, async: false, functionName: null });
   ast.exports = [...exported].sort();
   return ast;
 }
