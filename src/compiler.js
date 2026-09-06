@@ -43,6 +43,31 @@ export function emitJavaScript(ast) {
     declaredScopes.pop();
     return `(${node.async ? 'async ' : ''}function(${emitFunctionParameters(node)}) ${body})`;
   }
+  function emitClassMethod(className, method) {
+    const bindings = method.restParam ? [...method.params, method.restParam, 'self'] : [...method.params, 'self'];
+    declaredScopes.push(new Set(bindings));
+    const inner = method.body.body.map((statement) => emitStatement(statement, 1)).join('\n');
+    declaredScopes.pop();
+    const body = `{\n  const self = this;${inner ? `\n${inner}` : ''}\n}`;
+    return `${className}.prototype.${method.name} = ${method.async ? 'async ' : ''}function(${emitFunctionParameters(method)}) ${body};`;
+  }
+  function emitClass(node, level) {
+    const pad = indent(level);
+    currentScope().add(node.name);
+    const parent = node.superClass ? emitExpression(node.superClass) : 'Object';
+    const lines = [
+      `${pad}function ${node.name}(...__cannon_args) {`,
+      `${pad}  const self = Object.create(${node.name}.prototype);`,
+      `${pad}  const initializer = self.init;`,
+      `${pad}  if (typeof initializer === 'function') initializer.apply(self, __cannon_args);`,
+      `${pad}  return self;`,
+      `${pad}}`,
+      `${pad}${node.name}.prototype = Object.create(${parent}.prototype);`,
+      `${pad}Object.defineProperty(${node.name}.prototype, 'constructor', { value: ${node.name}, writable: true, configurable: true });`,
+    ];
+    for (const method of node.methods) lines.push(`${pad}${emitClassMethod(node.name, method)}`);
+    return lines.join('\n');
+  }
   function emitTry(node, level) {
     const pad = indent(level);
     let output = `${pad}try ${emitBlock(node.body, level)}`;
@@ -62,13 +87,18 @@ export function emitJavaScript(ast) {
     switch (node.type) {
       case 'ImportDeclaration': return `${pad}${emitImport(node)}`;
       case 'ExportNamedDeclaration': {
-        if (node.declaration) return `${pad}export ${emitStatement(node.declaration, 0).trimStart()}`;
+        if (node.declaration) {
+          if (node.declaration.type === 'ClassDeclaration') return `${emitClass(node.declaration, level)}\n${pad}export { ${node.declaration.name} };`;
+          return `${pad}export ${emitStatement(node.declaration, 0).trimStart()}`;
+        }
         const names = node.specifiers.map((s) => s.local === s.exported ? s.local : `${s.local} as ${s.exported}`).join(', ');
         return `${pad}export { ${names} }${node.source ? ` from ${JSON.stringify(node.source)}` : ''};`;
       }
       case 'ExportDefaultDeclaration':
         if (node.declaration.type === 'FunctionDeclaration') return `${pad}export default ${emitStatement(node.declaration, 0).trimStart()}`;
+        if (node.declaration.type === 'ClassDeclaration') return `${emitClass(node.declaration, level)}\n${pad}export default ${node.declaration.name};`;
         return `${pad}export default ${emitExpression(node.declaration)};`;
+      case 'ClassDeclaration': return emitClass(node, level);
       case 'VariableDeclaration': currentScope().add(node.name); return `${pad}${node.kind} ${node.name} = ${emitExpression(node.value)};`;
       case 'AssignmentStatement':
         if (node.target.type === 'Identifier') {
