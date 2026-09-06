@@ -44,12 +44,26 @@ export function analyze(ast) {
         if (context.functionDepth === 0) throw new CannonSemanticError('return can only be used inside a function');
         if (node.value) analyzeExpression(node.value, scope, context);
         return;
+      case 'RaiseStatement':
+        if (node.value) analyzeExpression(node.value, scope, context);
+        else if (context.catchDepth === 0) throw new CannonSemanticError('bare raise can only be used inside catch');
+        return;
+      case 'TryStatement': {
+        analyzeBody(node.body.body, new Scope(scope), context);
+        if (node.handler) {
+          const catchScope = new Scope(scope);
+          if (node.handler.param) catchScope.define(node.handler.param, { kind: 'catch', dynamic: true });
+          analyzeBody(node.handler.body.body, catchScope, { ...context, catchDepth: context.catchDepth + 1 });
+        }
+        if (node.finalizer) analyzeBody(node.finalizer.body, new Scope(scope), context);
+        return;
+      }
       case 'BreakStatement': if (context.loopDepth === 0) throw new CannonSemanticError('break can only be used inside a loop'); return;
       case 'ContinueStatement': if (context.loopDepth === 0) throw new CannonSemanticError('continue can only be used inside a loop'); return;
       case 'FunctionDeclaration': {
         const fnScope = new Scope(scope), seen = new Set();
         for (const param of node.params) { if (seen.has(param)) throw new CannonSemanticError(`Duplicate parameter ${param} in function ${node.name}`); seen.add(param); fnScope.define(param, { kind: 'parameter', dynamic: true }); }
-        analyzeBody(node.body.body, fnScope, { functionDepth: context.functionDepth + 1, loopDepth: 0, async: Boolean(node.async), functionName: node.name });
+        analyzeBody(node.body.body, fnScope, { functionDepth: context.functionDepth + 1, loopDepth: 0, catchDepth: 0, async: Boolean(node.async), functionName: node.name });
         return;
       }
       case 'IfStatement':
@@ -113,7 +127,7 @@ export function analyze(ast) {
     }
   }
 
-  analyzeBody(ast.body, global, { functionDepth: 0, loopDepth: 0, async: false, functionName: null });
+  analyzeBody(ast.body, global, { functionDepth: 0, loopDepth: 0, catchDepth: 0, async: false, functionName: null });
   ast.exports = [...exported].sort();
   return ast;
 }
