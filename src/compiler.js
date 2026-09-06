@@ -36,6 +36,13 @@ export function emitJavaScript(ast) {
     if (node.restParam) parameters.push(`...${node.restParam}`);
     return parameters.join(', ');
   }
+  function emitFunctionExpression(node) {
+    const bindings = node.restParam ? [...node.params, node.restParam] : [...node.params];
+    declaredScopes.push(new Set(bindings));
+    const body = emitBlock(node.body, 0);
+    declaredScopes.pop();
+    return `(${node.async ? 'async ' : ''}function(${emitFunctionParameters(node)}) ${body})`;
+  }
   function emitTry(node, level) {
     const pad = indent(level);
     let output = `${pad}try ${emitBlock(node.body, level)}`;
@@ -141,6 +148,7 @@ export function emitJavaScript(ast) {
         const operator = node.operator === '==' ? '===' : node.operator === '!=' ? '!==' : node.operator;
         return `(${emitExpression(node.left)} ${operator} ${emitExpression(node.right)})`;
       }
+      case 'FunctionExpression': return emitFunctionExpression(node);
       case 'CallExpression': {
         const callee = node.callee.type === 'Identifier' && node.callee.name === 'print' ? 'console.log' : emitExpression(node.callee);
         return `${callee}(${node.arguments.map(emitExpression).join(', ')})`;
