@@ -4,9 +4,7 @@ export function format(source) {
   return printProgram(parse(source)) + '\n';
 }
 
-function printProgram(ast) {
-  return ast.body.map((node) => printStatement(node, 0)).join('\n');
-}
+function printProgram(ast) { return ast.body.map((node) => printStatement(node, 0)).join('\n'); }
 
 function printStatement(node, level) {
   const pad = '  '.repeat(level);
@@ -47,9 +45,7 @@ function printForClause(node) {
   throw new Error(`Unsupported Cannon for-clause for formatting: ${node.type}`);
 }
 
-function printAssignment(node) {
-  return `${printExpression(node.target ?? { type: 'Identifier', name: node.name })} = ${printExpression(node.value)}`;
-}
+function printAssignment(node) { return `${printExpression(node.target ?? { type: 'Identifier', name: node.name })} = ${printExpression(node.value)}`; }
 
 function printImport(node) {
   const source = JSON.stringify(node.source);
@@ -81,15 +77,15 @@ function printDeclarationWithoutPad(node, level) {
   throw new Error(`Unsupported Cannon export declaration for formatting: ${node.type}`);
 }
 
-function printFunction(node, level) {
+function printParameters(node) {
   const params = node.params.map((param) => node.defaults?.[param] ? `${param} = ${printExpression(node.defaults[param])}` : param);
   if (node.restParam) params.push(`...${node.restParam}`);
-  return `${node.async ? 'async ' : ''}fn ${node.name}(${params.join(', ')}) ${printBlock(node.body, level)}`;
+  return params.join(', ');
 }
 
-function printBlock(node, level) {
-  return `{\n${node.body.map((statement) => printStatement(statement, level + 1)).join('\n')}\n${'  '.repeat(level)}}`;
-}
+function printFunction(node, level) { return `${node.async ? 'async ' : ''}fn ${node.name}(${printParameters(node)}) ${printBlock(node.body, level)}`; }
+function printAnonymousFunction(node) { return `${node.async ? 'async ' : ''}fn(${printParameters(node)}) ${printBlock(node.body, 0)}`; }
+function printBlock(node, level) { return `{\n${node.body.map((statement) => printStatement(statement, level + 1)).join('\n')}\n${'  '.repeat(level)}}`; }
 
 function printExpression(node) {
   switch (node.type) {
@@ -101,6 +97,7 @@ function printExpression(node) {
     case 'UnaryExpression': return `${node.operator}${printExpression(node.argument)}`;
     case 'AwaitExpression': return `await ${printExpression(node.argument)}`;
     case 'BinaryExpression': return `${printExpression(node.left)} ${node.operator} ${printExpression(node.right)}`;
+    case 'FunctionExpression': return printAnonymousFunction(node);
     case 'CallExpression': return `${printExpression(node.callee)}(${node.arguments.map(printExpression).join(', ')})`;
     default: throw new Error(`Unsupported Cannon expression for formatting: ${node.type}`);
   }
