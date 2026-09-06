@@ -36,11 +36,12 @@ export class RecoveryStore {
     const safe = path.basename(name); if (safe !== name || !safe.endsWith('.checkpoint.json')) throw new TypeError('invalid checkpoint name');
     let envelope; try { envelope = JSON.parse(await fs.readFile(path.join(this.root, safe), 'utf8')); } catch (e) { throw new RecoveryCorruptionError(`cannot read checkpoint ${safe}`, e); }
     if (envelope?.format !== FORMAT || typeof envelope.sha256 !== 'string') throw new RecoveryCorruptionError(`invalid checkpoint envelope ${safe}`);
-    const { sha256, ...body } = envelope; if (!crypto.timingSafeEqual(Buffer.from(sha256), Buffer.from(digest(body)))) throw new RecoveryCorruptionError(`checkpoint checksum mismatch ${safe}`);
+    const { sha256, ...body } = envelope; if (!safeEqual(sha256, digest(body))) throw new RecoveryCorruptionError(`checkpoint checksum mismatch ${safe}`);
     return envelope;
   }
   async prune() { const names = await this.list(); await Promise.all(names.slice(this.maxGenerations).map((n) => fs.rm(path.join(this.root, n), { force: true }))); }
 }
 
 function digest(value) { return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex'); }
+function safeEqual(a, b) { const x = Buffer.from(a), y = Buffer.from(b); return x.length === y.length && crypto.timingSafeEqual(x, y); }
 async function syncDir(dir) { try { const h = await fs.open(dir, 'r'); try { await h.sync(); } finally { await h.close(); } } catch (e) { if (!['EINVAL','ENOTSUP','EISDIR'].includes(e.code)) throw e; } }
