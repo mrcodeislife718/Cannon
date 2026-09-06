@@ -82,7 +82,9 @@ function printDeclarationWithoutPad(node, level) {
 }
 
 function printFunction(node, level) {
-  return `${node.async ? 'async ' : ''}fn ${node.name}(${node.params.join(', ')}) ${printBlock(node.body, level)}`;
+  const params = node.params.map((param) => node.defaults?.[param] ? `${param} = ${printExpression(node.defaults[param])}` : param);
+  if (node.restParam) params.push(`...${node.restParam}`);
+  return `${node.async ? 'async ' : ''}fn ${node.name}(${params.join(', ')}) ${printBlock(node.body, level)}`;
 }
 
 function printBlock(node, level) {
