@@ -13,6 +13,7 @@ export function parse(source) {
   function parseStatement() {
     if (match('import')) return parseImport();
     if (match('export')) return parseExport();
+    if (match('class')) return parseClass();
     if (match('fn') || (match('async') && peek().type === 'fn')) return parseFunction();
     if (match('return')) return parseReturn();
     if (match('if')) return parseIf();
@@ -43,8 +44,15 @@ export function parse(source) {
   }
   function parseExport() {
     take('export');
-    if (optional('default')) { if (match('fn') || (match('async') && peek().type==='fn')) return { type:'ExportDefaultDeclaration', declaration:parseFunction() }; const declaration=parseExpression(); optional(';'); return { type:'ExportDefaultDeclaration', declaration }; }
-    if (match('fn') || (match('async') && peek().type==='fn') || match('let','const')) { const declaration=match('let','const')?parseDeclaration():parseFunction(); return { type:'ExportNamedDeclaration', declaration, specifiers:[], source:null }; }
+    if (optional('default')) {
+      if (match('class')) return { type:'ExportDefaultDeclaration', declaration:parseClass() };
+      if (match('fn') || (match('async') && peek().type==='fn')) return { type:'ExportDefaultDeclaration', declaration:parseFunction() };
+      const declaration=parseExpression(); optional(';'); return { type:'ExportDefaultDeclaration', declaration };
+    }
+    if (match('class') || match('fn') || (match('async') && peek().type==='fn') || match('let','const')) {
+      const declaration = match('class') ? parseClass() : match('let','const') ? parseDeclaration() : parseFunction();
+      return { type:'ExportNamedDeclaration', declaration, specifiers:[], source:null };
+    }
     take('{'); const specifiers=[]; while(!match('}')) { const local=take('identifier').value; let exported=local; if(optional('as')) exported=take('identifier').value; specifiers.push({local,exported}); if(!optional(',')) break; } take('}'); let source=null; if(optional('from')) source=take('string').value; optional(';'); return { type:'ExportNamedDeclaration', declaration:null, specifiers, source };
   }
 
@@ -89,6 +97,24 @@ export function parse(source) {
     take('fn');
     const parameters = parseParameterList();
     return { type:'FunctionExpression', ...parameters, async, body:parseBlock() };
+  }
+
+  function parseClass() {
+    take('class');
+    const name = take('identifier').value;
+    const superClass = optional('extends') ? parseExpression() : null;
+    take('{');
+    const methods = [];
+    while (!match('}')) {
+      if (match('eof')) { const token = current(); throw new CannonSyntaxError('Unterminated class body', token.line, token.column); }
+      if (!(match('fn') || (match('async') && peek().type === 'fn'))) {
+        const token = current();
+        throw new CannonSyntaxError('Cannon class bodies contain methods declared with fn', token.line, token.column);
+      }
+      methods.push(parseFunction());
+    }
+    take('}');
+    return { type:'ClassDeclaration', name, superClass, methods };
   }
 
   function parseReturn() { take('return'); const value=match(';','}')?null:parseExpression(); optional(';'); return { type:'ReturnStatement', value }; }
