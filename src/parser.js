@@ -50,7 +50,14 @@ export function parse(source) {
   function parseIf() { take('if'); take('('); const test=parseExpression(); take(')'); const consequent=parseBlock(); let alternate=null; if(optional('else')) alternate=match('if')?parseIf():parseBlock(); return { type:'IfStatement', test, consequent, alternate }; }
   function parseWhile() { take('while'); take('('); const test=parseExpression(); take(')'); return { type:'WhileStatement', test, body:parseBlock() }; }
   function parseFor() {
-    take('for'); take('(');
+    take('for');
+    if (!match('(')) {
+      const binding = take('identifier').value;
+      take('in');
+      const iterable = parseExpression();
+      return { type: 'ForInStatement', binding, iterable, body: parseBlock() };
+    }
+    take('(');
     let init = null;
     if (!match(';')) init = match('let','const') ? parseDeclaration(false) : parseForClauseExpression();
     take(';');
