@@ -37,6 +37,21 @@ export function analyze(ast) {
     for (const statement of body) analyzeStatement(statement, scope, context);
   }
 
+  function analyzeFunction(node, scope, context, displayName = '<anonymous>') {
+    const fnScope = new Scope(scope), seen = new Set();
+    for (const param of node.params) {
+      if (seen.has(param)) throw new CannonSemanticError(`Duplicate parameter ${param} in function ${displayName}`);
+      seen.add(param);
+      if (node.defaults?.[param]) analyzeExpression(node.defaults[param], fnScope, context);
+      fnScope.define(param, { kind: 'parameter', dynamic: true, defaulted: Boolean(node.defaults?.[param]) });
+    }
+    if (node.restParam) {
+      if (seen.has(node.restParam)) throw new CannonSemanticError(`Duplicate parameter ${node.restParam} in function ${displayName}`);
+      fnScope.define(node.restParam, { kind: 'parameter', dynamic: true, variadic: true });
+    }
+    analyzeBody(node.body.body, fnScope, { functionDepth: context.functionDepth + 1, loopDepth: 0, catchDepth: 0, async: Boolean(node.async), functionName: node.name ?? null });
+  }
+
   function analyzeStatement(node, scope, context) {
     switch (node.type) {
       case 'ImportDeclaration':
@@ -72,21 +87,7 @@ export function analyze(ast) {
       }
       case 'BreakStatement': if (context.loopDepth === 0) throw new CannonSemanticError('break can only be used inside a loop'); return;
       case 'ContinueStatement': if (context.loopDepth === 0) throw new CannonSemanticError('continue can only be used inside a loop'); return;
-      case 'FunctionDeclaration': {
-        const fnScope = new Scope(scope), seen = new Set();
-        for (const param of node.params) {
-          if (seen.has(param)) throw new CannonSemanticError(`Duplicate parameter ${param} in function ${node.name}`);
-          seen.add(param);
-          if (node.defaults?.[param]) analyzeExpression(node.defaults[param], fnScope, context);
-          fnScope.define(param, { kind: 'parameter', dynamic: true, defaulted: Boolean(node.defaults?.[param]) });
-        }
-        if (node.restParam) {
-          if (seen.has(node.restParam)) throw new CannonSemanticError(`Duplicate parameter ${node.restParam} in function ${node.name}`);
-          fnScope.define(node.restParam, { kind: 'parameter', dynamic: true, variadic: true });
-        }
-        analyzeBody(node.body.body, fnScope, { functionDepth: context.functionDepth + 1, loopDepth: 0, catchDepth: 0, async: Boolean(node.async), functionName: node.name });
-        return;
-      }
+      case 'FunctionDeclaration': analyzeFunction(node, scope, context, node.name); return;
       case 'IfStatement':
         analyzeExpression(node.test, scope, context);
         analyzeBody(node.consequent.body, new Scope(scope), context);
@@ -138,6 +139,7 @@ export function analyze(ast) {
       case 'UnaryExpression': analyzeExpression(node.argument, scope, context); return;
       case 'AwaitExpression': if (!context.async) throw new CannonSemanticError('await can only be used inside an async function'); analyzeExpression(node.argument, scope, context); return;
       case 'BinaryExpression': analyzeExpression(node.left, scope, context); analyzeExpression(node.right, scope, context); return;
+      case 'FunctionExpression': analyzeFunction(node, scope, context); return;
       case 'CallExpression': {
         analyzeExpression(node.callee, scope, context);
         for (const arg of node.arguments) analyzeExpression(arg, scope, context);
