@@ -5,12 +5,14 @@ function indent(level) { return '  '.repeat(level); }
 
 export function emitJavaScript(ast) {
   const declaredScopes = [new Set()];
+  const catchBindings = [];
+  let syntheticCatchId = 0;
   const currentScope = () => declaredScopes[declaredScopes.length - 1];
   const isDeclared = (name) => declaredScopes.some((scope) => scope.has(name));
 
   function emitProgram(node) { return node.body.map((statement) => emitStatement(statement, 0)).join('\n'); }
-  function emitBlock(node, level) {
-    declaredScopes.push(new Set());
+  function emitBlock(node, level, bindings = []) {
+    declaredScopes.push(new Set(bindings));
     const body = node.body.map((statement) => emitStatement(statement, level + 1)).join('\n');
     declaredScopes.pop();
     return `{\n${body}\n${indent(level)}}`;
@@ -28,6 +30,19 @@ export function emitJavaScript(ast) {
     }
     if (node.type === 'ExpressionStatement') return emitExpression(node.expression);
     throw new Error(`Unsupported Cannon for-clause statement: ${node.type}`);
+  }
+  function emitTry(node, level) {
+    const pad = indent(level);
+    let output = `${pad}try ${emitBlock(node.body, level)}`;
+    if (node.handler) {
+      const binding = node.handler.param ?? `__cannon_error_${syntheticCatchId++}`;
+      catchBindings.push(binding);
+      const body = emitBlock(node.handler.body, level, [binding]);
+      catchBindings.pop();
+      output += ` catch (${binding}) ${body}`;
+    }
+    if (node.finalizer) output += ` finally ${emitBlock(node.finalizer, level)}`;
+    return output;
   }
 
   function emitStatement(node, level) {
@@ -52,6 +67,13 @@ export function emitJavaScript(ast) {
         return `${pad}${emitExpression(node.target)} = ${emitExpression(node.value)};`;
       case 'ExpressionStatement': return `${pad}${emitExpression(node.expression)};`;
       case 'ReturnStatement': return `${pad}return${node.value ? ` ${emitExpression(node.value)}` : ''};`;
+      case 'RaiseStatement': {
+        if (node.value) return `${pad}throw ${emitExpression(node.value)};`;
+        const binding = catchBindings.at(-1);
+        if (!binding) throw new Error('Cannon bare raise reached code generation outside catch');
+        return `${pad}throw ${binding};`;
+      }
+      case 'TryStatement': return emitTry(node, level);
       case 'BreakStatement': return `${pad}break;`;
       case 'ContinueStatement': return `${pad}continue;`;
       case 'FunctionDeclaration': {
