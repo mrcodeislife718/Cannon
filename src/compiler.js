@@ -77,6 +77,12 @@ export function emitJavaScript(ast) {
         declaredScopes.pop();
         return `${pad}for (${init}; ${test}; ${update}) ${body}`;
       }
+      case 'ForInStatement': {
+        declaredScopes.push(new Set([node.binding]));
+        const body = emitBlock(node.body, level);
+        declaredScopes.pop();
+        return `${pad}for (const ${node.binding} of ${emitExpression(node.iterable)}) ${body}`;
+      }
       case 'BlockStatement': return `${pad}${emitBlock(node, level)}`;
       default: throw new Error(`Unsupported Cannon statement: ${node.type}`);
     }
