@@ -47,7 +47,36 @@ export function parse(source) {
     if (match('fn') || (match('async') && peek().type==='fn') || match('let','const')) { const declaration=match('let','const')?parseDeclaration():parseFunction(); return { type:'ExportNamedDeclaration', declaration, specifiers:[], source:null }; }
     take('{'); const specifiers=[]; while(!match('}')) { const local=take('identifier').value; let exported=local; if(optional('as')) exported=take('identifier').value; specifiers.push({local,exported}); if(!optional(',')) break; } take('}'); let source=null; if(optional('from')) source=take('string').value; optional(';'); return { type:'ExportNamedDeclaration', declaration:null, specifiers, source };
   }
-  function parseFunction() { const async=Boolean(optional('async')); take('fn'); const name=take('identifier').value; take('('); const params=[]; if(!match(')')) do { params.push(take('identifier').value); } while(optional(',')); take(')'); return { type:'FunctionDeclaration', name, params, async, body:parseBlock() }; }
+  function parseFunction() {
+    const async = Boolean(optional('async'));
+    take('fn');
+    const name = take('identifier').value;
+    take('(');
+    const params = [];
+    const defaults = {};
+    let restParam = null;
+    let sawDefault = false;
+    while (!match(')')) {
+      if (match('...')) {
+        take('...');
+        restParam = take('identifier').value;
+        if (optional(',') && !match(')')) { const token = current(); throw new CannonSyntaxError('variadic parameter must be last', token.line, token.column); }
+        break;
+      }
+      const param = take('identifier').value;
+      params.push(param);
+      if (optional('=')) {
+        defaults[param] = parseExpression();
+        sawDefault = true;
+      } else if (sawDefault) {
+        const token = current();
+        throw new CannonSyntaxError('required parameter cannot follow a default parameter', token.line, token.column);
+      }
+      if (!optional(',')) break;
+    }
+    take(')');
+    return { type:'FunctionDeclaration', name, params, defaults, restParam, async, body:parseBlock() };
+  }
   function parseReturn() { take('return'); const value=match(';','}')?null:parseExpression(); optional(';'); return { type:'ReturnStatement', value }; }
   function parseRaise() { take('raise'); const value=match(';','}') ? null : parseExpression(); optional(';'); return { type:'RaiseStatement', value }; }
   function parseTry() {
