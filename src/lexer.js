@@ -1,4 +1,4 @@
-const KEYWORDS = new Set(['fn','async','await','return','if','else','while','for','break','continue','true','false','null','let','const','import','export','from','as','default']);
+const KEYWORDS = new Set(['fn','async','await','return','if','else','while','for','in','break','continue','true','false','null','let','const','import','export','from','as','default']);
 
 export class CannonSyntaxError extends SyntaxError {
   constructor(message, line, column) {
