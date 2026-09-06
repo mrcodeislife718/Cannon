@@ -11,31 +11,34 @@ function printProgram(ast) {
 function printStatement(node, level) {
   const pad = '  '.repeat(level);
   switch (node.type) {
-    case 'ImportDeclaration':
-      return `${pad}${printImport(node)}`;
-    case 'ExportDefaultDeclaration':
-      return `${pad}export default ${printExportDefault(node.declaration, level)}`;
-    case 'ExportNamedDeclaration':
-      return `${pad}${printNamedExport(node, level)}`;
-    case 'VariableDeclaration':
-      return `${pad}${node.kind} ${node.name} = ${printExpression(node.value)}`;
-    case 'AssignmentStatement':
-      return `${pad}${printExpression(node.target ?? { type: 'Identifier', name: node.name })} = ${printExpression(node.value)}`;
-    case 'ExpressionStatement':
-      return `${pad}${printExpression(node.expression)}`;
-    case 'ReturnStatement':
-      return `${pad}return${node.value ? ` ${printExpression(node.value)}` : ''}`;
-    case 'FunctionDeclaration':
-      return `${pad}${printFunction(node, level)}`;
-    case 'IfStatement':
-      return `${pad}if (${printExpression(node.test)}) ${printBlock(node.consequent, level)}${node.alternate ? ` else ${node.alternate.type === 'IfStatement' ? printStatement(node.alternate, level).trimStart() : printBlock(node.alternate, level)}` : ''}`;
-    case 'WhileStatement':
-      return `${pad}while (${printExpression(node.test)}) ${printBlock(node.body, level)}`;
-    case 'BlockStatement':
-      return `${pad}${printBlock(node, level)}`;
-    default:
-      throw new Error(`Unsupported Cannon statement for formatting: ${node.type}`);
+    case 'ImportDeclaration': return `${pad}${printImport(node)}`;
+    case 'ExportDefaultDeclaration': return `${pad}export default ${printExportDefault(node.declaration, level)}`;
+    case 'ExportNamedDeclaration': return `${pad}${printNamedExport(node, level)}`;
+    case 'VariableDeclaration': return `${pad}${node.kind} ${node.name} = ${printExpression(node.value)}`;
+    case 'AssignmentStatement': return `${pad}${printAssignment(node)}`;
+    case 'ExpressionStatement': return `${pad}${printExpression(node.expression)}`;
+    case 'ReturnStatement': return `${pad}return${node.value ? ` ${printExpression(node.value)}` : ''}`;
+    case 'BreakStatement': return `${pad}break`;
+    case 'ContinueStatement': return `${pad}continue`;
+    case 'FunctionDeclaration': return `${pad}${printFunction(node, level)}`;
+    case 'IfStatement': return `${pad}if (${printExpression(node.test)}) ${printBlock(node.consequent, level)}${node.alternate ? ` else ${node.alternate.type === 'IfStatement' ? printStatement(node.alternate, level).trimStart() : printBlock(node.alternate, level)}` : ''}`;
+    case 'WhileStatement': return `${pad}while (${printExpression(node.test)}) ${printBlock(node.body, level)}`;
+    case 'ForStatement': return `${pad}for (${printForClause(node.init)}; ${node.test ? printExpression(node.test) : ''}; ${printForClause(node.update)}) ${printBlock(node.body, level)}`;
+    case 'BlockStatement': return `${pad}${printBlock(node, level)}`;
+    default: throw new Error(`Unsupported Cannon statement for formatting: ${node.type}`);
   }
+}
+
+function printForClause(node) {
+  if (!node) return '';
+  if (node.type === 'VariableDeclaration') return `${node.kind} ${node.name} = ${printExpression(node.value)}`;
+  if (node.type === 'AssignmentStatement') return printAssignment(node);
+  if (node.type === 'ExpressionStatement') return printExpression(node.expression);
+  throw new Error(`Unsupported Cannon for-clause for formatting: ${node.type}`);
+}
+
+function printAssignment(node) {
+  return `${printExpression(node.target ?? { type: 'Identifier', name: node.name })} = ${printExpression(node.value)}`;
 }
 
 function printImport(node) {
